@@ -10,6 +10,10 @@ pub const auth = struct {
     pub const challenge = @import("auth/challenge.zig");
     pub const proof = @import("auth/proof.zig");
 };
+pub const trust = struct {
+    pub const policy = @import("trust/policy.zig");
+    pub const store = @import("trust/store.zig");
+};
 pub const DidKey = did.key.DidKey;
 pub const Document = did.document.Document;
 
