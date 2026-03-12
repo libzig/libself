@@ -2,6 +2,10 @@
     .name = .libself,
     .version = "0.0.1",
     .dependencies = .{
+        .libfast = .{
+            .url = "git+https://github.com/libzig/libfast#0.0.16",
+            .hash = "libfast-0.0.16-BoxUpZaTDAClNv5M5VImaQ06w2vVSI5HSbOADKDNqIXq",
+        },
         .libsafe = .{
             .url = "git+https://github.com/libzig/libsafe#0.0.8",
             .hash = "libsafe-0.0.8-ucZASOEfBAC7l7_bvYjAjNV_u9VeWVNiH-IF1EQVsDZm",

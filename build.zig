@@ -3,10 +3,15 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const libfast_dep = b.dependency("libfast", .{
+        .target = target,
+        .optimize = optimize,
+    });
     const libsafe_dep = b.dependency("libsafe", .{
         .target = target,
         .optimize = optimize,
     });
+    const libfast_module = libfast_dep.module("libfast");
     const libsafe_module = libsafe_dep.module("libsafe");
 
     const libself_module = b.createModule(.{
@@ -14,6 +19,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    libself_module.addImport("libfast", libfast_module);
     libself_module.addImport("libsafe", libsafe_module);
 
     const exported = b.addModule("libself", .{
@@ -21,6 +27,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    exported.addImport("libfast", libfast_module);
     exported.addImport("libsafe", libsafe_module);
 
     const lib = b.addLibrary(.{

@@ -17,6 +17,7 @@ pub const trust = struct {
     pub const store = @import("trust/store.zig");
 };
 pub const libfast = struct {
+    pub const adapter = @import("libfast/adapter.zig");
     pub const messages = @import("libfast/messages.zig");
     pub const session = @import("libfast/session.zig");
     pub const types = @import("libfast/types.zig");
