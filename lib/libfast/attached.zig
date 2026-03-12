@@ -1,7 +1,10 @@
 const std = @import("std");
 const adapter = @import("adapter.zig");
 const libfast = @import("libfast");
+const local_identity = @import("local_identity.zig");
+const messages = @import("messages.zig");
 const node_id = @import("../node_id.zig");
+const proof_mod = @import("../auth/proof.zig");
 const session = @import("session.zig");
 const trust_policy = @import("../trust/policy.zig");
 const types = @import("types.zig");
@@ -65,12 +68,26 @@ pub const AuthenticatedConnection = struct {
     pub fn newPeerChallenge(
         self: *const AuthenticatedConnection,
         nonce: [32]u8,
-    ) !@import("messages.zig").ChallengeMessage {
+    ) !messages.ChallengeMessage {
         return session.newPeerChallengeMessage(
             self.allocator,
             self.connection,
             self.peer_subject,
             nonce,
+        );
+    }
+
+    pub fn signLocalProof(
+        self: *const AuthenticatedConnection,
+        local: local_identity.LocalIdentity,
+        challenge: messages.ChallengeMessage,
+    ) !messages.ProofMessage {
+        return session.signLocalProofMessage(
+            self.allocator,
+            self.connection,
+            local.key_pair,
+            local.did,
+            challenge,
         );
     }
 };
@@ -190,4 +207,32 @@ test "authenticated connection builds peer challenge from attached subject" {
 
     try std.testing.expectEqual(@as(@TypeOf(challenge.role), .server), challenge.role);
     try std.testing.expectEqualSlices(u8, &nonce, &challenge.nonce);
+}
+
+test "authenticated connection signs local proof with attached transport binding" {
+    const allocator = std.testing.allocator;
+    var connection = try initNegotiatedClient(allocator, 0x95);
+    defer connection.deinit();
+
+    var attached = try AuthenticatedConnection.init(allocator, &connection, "peer-c");
+    defer attached.deinit();
+    var local = try local_identity.LocalIdentity.fromSeed(allocator, [_]u8{0x71} ** 32);
+    defer local.deinit();
+
+    const challenge = messages.ChallengeMessage{
+        .role = .client,
+        .nonce = [_]u8{0x72} ** 32,
+    };
+    var proof = try attached.signLocalProof(local, challenge);
+    defer proof.deinit(allocator);
+
+    const context = try session.localAuthContext(allocator, &connection, "");
+    var decoded = try proof.toProof(allocator);
+    defer decoded.deinit(allocator);
+
+    try proof_mod.verifyProof(
+        allocator,
+        context.challenge(challenge.nonce),
+        decoded,
+    );
 }
