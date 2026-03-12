@@ -1,6 +1,9 @@
 const std = @import("std");
 const proof_mod = @import("../auth/proof.zig");
 const did_key = @import("../did/key.zig");
+const adapter = @import("adapter.zig");
+const binding_mod = @import("binding.zig");
+const libfast = @import("libfast");
 const messages = @import("messages.zig");
 const types = @import("types.zig");
 const trust_policy = @import("../trust/policy.zig");
@@ -13,6 +16,30 @@ pub const VerifyError = error{
     InvalidDid,
     InvalidSignature,
 } || std.mem.Allocator.Error;
+
+pub fn localAuthContext(
+    allocator: std.mem.Allocator,
+    connection: *const libfast.QuicConnection,
+    subject: []const u8,
+) binding_mod.Error!types.AuthContext {
+    return .{
+        .subject = subject,
+        .role = adapter.localRole(connection),
+        .binding = try binding_mod.transcriptBinding(allocator, connection),
+    };
+}
+
+pub fn peerAuthContext(
+    allocator: std.mem.Allocator,
+    connection: *const libfast.QuicConnection,
+    subject: []const u8,
+) binding_mod.Error!types.AuthContext {
+    return .{
+        .subject = subject,
+        .role = adapter.peerRole(connection),
+        .binding = try binding_mod.transcriptBinding(allocator, connection),
+    };
+}
 
 pub fn newChallengeMessage(context: types.AuthContext, nonce: [32]u8) messages.ChallengeMessage {
     return .{
@@ -65,6 +92,44 @@ pub fn verifyProofMessage(
     if (decision == .rejected) return error.TrustRejected;
 
     return types.PeerIdentity.init(allocator, proof_message.did, parsed.public_key, decision);
+}
+
+fn initNegotiatedClient(allocator: std.mem.Allocator, seed: u8) !libfast.QuicConnection {
+    var connection = try libfast.QuicConnection.init(
+        allocator,
+        libfast.QuicConfig.sshClient("example.com", ""),
+    );
+    errdefer connection.deinit();
+
+    const internal = try allocator.create(libfast.connection.Connection);
+    errdefer allocator.destroy(internal);
+
+    const local_cid = try libfast.ConnectionId.init(&([_]u8{seed} ** 8));
+    const remote_cid = try libfast.ConnectionId.init(&([_]u8{seed +% 1} ** 8));
+    internal.* = try libfast.connection.Connection.initClient(allocator, .ssh, local_cid, remote_cid);
+    connection.internal_conn = internal;
+
+    const encoded_params = try libfast.transport_params.TransportParams.defaultServer().encode(allocator);
+    defer allocator.free(encoded_params);
+
+    try connection.applyPeerTransportParams(encoded_params);
+    connection.state = .established;
+    return connection;
+}
+
+test "libfast session derives auth contexts from a negotiated connection" {
+    const allocator = std.testing.allocator;
+    var connection = try initNegotiatedClient(allocator, 0xa1);
+    defer connection.deinit();
+
+    const local = try localAuthContext(allocator, &connection, "self");
+    const peer = try peerAuthContext(allocator, &connection, "peer-a");
+
+    try std.testing.expectEqualStrings("self", local.subject);
+    try std.testing.expectEqualStrings("peer-a", peer.subject);
+    try std.testing.expectEqual(@as(@TypeOf(local.role), .client), local.role);
+    try std.testing.expectEqual(@as(@TypeOf(peer.role), .server), peer.role);
+    try std.testing.expectEqualSlices(u8, &local.binding.hash, &peer.binding.hash);
 }
 
 test "libfast session signs and verifies a proof message" {
