@@ -73,4 +73,55 @@ pub fn build(b: *std.Build) void {
     const run_example = b.addRunArtifact(example);
     const run_example_step = b.step("run-example", "Run the hello world example");
     run_example_step.dependOn(&run_example.step);
+
+    const did_key_example_module = b.createModule(.{
+        .root_source_file = b.path("examples/did_key_roundtrip.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    did_key_example_module.addImport("libself", libself_module);
+
+    const did_key_example = b.addExecutable(.{
+        .name = "did_key_roundtrip",
+        .root_module = did_key_example_module,
+    });
+    b.installArtifact(did_key_example);
+
+    const run_did_key_example = b.addRunArtifact(did_key_example);
+    const run_did_key_example_step = b.step("run-did-key-roundtrip", "Run the did:key roundtrip example");
+    run_did_key_example_step.dependOn(&run_did_key_example.step);
+
+    const auth_example_module = b.createModule(.{
+        .root_source_file = b.path("examples/auth_challenge.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    auth_example_module.addImport("libself", libself_module);
+
+    const auth_example = b.addExecutable(.{
+        .name = "auth_challenge",
+        .root_module = auth_example_module,
+    });
+    b.installArtifact(auth_example);
+
+    const run_auth_example = b.addRunArtifact(auth_example);
+    const run_auth_example_step = b.step("run-auth-challenge", "Run the auth challenge example");
+    run_auth_example_step.dependOn(&run_auth_example.step);
+
+    const trust_example_module = b.createModule(.{
+        .root_source_file = b.path("examples/trust_tofu.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    trust_example_module.addImport("libself", libself_module);
+
+    const trust_example = b.addExecutable(.{
+        .name = "trust_tofu",
+        .root_module = trust_example_module,
+    });
+    b.installArtifact(trust_example);
+
+    const run_trust_example = b.addRunArtifact(trust_example);
+    const run_trust_example_step = b.step("run-trust-tofu", "Run the TOFU trust example");
+    run_trust_example_step.dependOn(&run_trust_example.step);
 }

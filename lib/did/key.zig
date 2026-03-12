@@ -26,7 +26,7 @@ pub const DidKey = struct {
     }
 
     pub fn methodSpecificId(self: DidKey, allocator: std.mem.Allocator) ![]u8 {
-        var payload: [multicodec_ed25519_pub.len + identity.PublicKey.len]u8 = undefined;
+        var payload: [multicodec_ed25519_pub.len + identity.public_key_len]u8 = undefined;
         payload[0..multicodec_ed25519_pub.len].* = multicodec_ed25519_pub;
         payload[multicodec_ed25519_pub.len..].* = self.public_key;
 
@@ -58,7 +58,7 @@ pub const DidKey = struct {
         };
         defer allocator.free(decoded);
 
-        if (decoded.len != multicodec_ed25519_pub.len + identity.PublicKey.len) {
+        if (decoded.len != multicodec_ed25519_pub.len + identity.public_key_len) {
             return error.InvalidPublicKeyLength;
         }
 
@@ -67,7 +67,7 @@ pub const DidKey = struct {
         }
 
         return .{
-            .public_key = decoded[multicodec_ed25519_pub.len..].*,
+            .public_key = decoded[multicodec_ed25519_pub.len..][0..identity.public_key_len].*,
         };
     }
 };

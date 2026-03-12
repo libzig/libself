@@ -3,6 +3,8 @@ const libsafe = @import("libsafe");
 
 const Ed25519 = std.crypto.sign.Ed25519;
 
+pub const public_key_len = 32;
+pub const private_key_len = 64;
 pub const PublicKey = [32]u8;
 pub const PrivateKey = [64]u8;
 pub const Signature = [64]u8;
