@@ -4,6 +4,7 @@ const identity = @import("../identity.zig");
 
 pub const did_prefix = "did:key:";
 pub const multicodec_ed25519_pub = [_]u8{ 0xed, 0x01 };
+pub const verification_type = "Ed25519VerificationKey2020";
 
 pub const ParseError = error{
     InvalidDidPrefix,
