@@ -1,5 +1,18 @@
 const std = @import("std");
 
+const JsonMetadata = struct {
+    key: []const u8,
+    value: []const u8,
+};
+
+const JsonProfile = struct {
+    did: []const u8,
+    display_name: ?[]const u8 = null,
+    transport_hint: ?[]const u8 = null,
+    local_label: ?[]const u8 = null,
+    metadata: ?[]JsonMetadata = null,
+};
+
 pub const Profile = struct {
     allocator: std.mem.Allocator,
     did: []u8,
@@ -67,6 +80,66 @@ pub const Profile = struct {
         self.allocator.free(removed.value);
         return true;
     }
+
+    pub fn toJsonAlloc(self: *const Profile, allocator: std.mem.Allocator) ![]u8 {
+        var out = std.ArrayList(u8).init(allocator);
+        defer out.deinit();
+
+        var writer = out.writer();
+        try writer.writeByte('{');
+        try writer.writeAll("\"did\":");
+        try std.json.encodeJsonString(self.did, .{}, &writer);
+
+        if (self.display_name) |value| {
+            try writer.writeAll(",\"display_name\":");
+            try std.json.encodeJsonString(value, .{}, &writer);
+        }
+        if (self.transport_hint) |value| {
+            try writer.writeAll(",\"transport_hint\":");
+            try std.json.encodeJsonString(value, .{}, &writer);
+        }
+        if (self.local_label) |value| {
+            try writer.writeAll(",\"local_label\":");
+            try std.json.encodeJsonString(value, .{}, &writer);
+        }
+
+        try writer.writeAll(",\"metadata\":[");
+        var first = true;
+        var iterator = self.metadata.iterator();
+        while (iterator.next()) |entry| {
+            if (!first) try writer.writeByte(',');
+            first = false;
+
+            try writer.writeAll("{\"key\":");
+            try std.json.encodeJsonString(entry.key_ptr.*, .{}, &writer);
+            try writer.writeAll(",\"value\":");
+            try std.json.encodeJsonString(entry.value_ptr.*, .{}, &writer);
+            try writer.writeByte('}');
+        }
+        try writer.writeAll("]}");
+
+        return out.toOwnedSlice();
+    }
+
+    pub fn fromJson(allocator: std.mem.Allocator, bytes: []const u8) !Profile {
+        const parsed = try std.json.parseFromSlice(JsonProfile, allocator, bytes, .{});
+        defer parsed.deinit();
+
+        var profile = try Profile.init(allocator, parsed.value.did);
+        errdefer profile.deinit();
+
+        try profile.setDisplayName(parsed.value.display_name);
+        try profile.setTransportHint(parsed.value.transport_hint);
+        try profile.setLocalLabel(parsed.value.local_label);
+
+        if (parsed.value.metadata) |metadata| {
+            for (metadata) |entry| {
+                try profile.setMetadata(entry.key, entry.value);
+            }
+        }
+
+        return profile;
+    }
 };
 
 fn replaceOptional(
@@ -131,4 +204,47 @@ test "profile metadata helpers set replace and remove keys" {
     try std.testing.expect(profile.removeMetadata("region"));
     try std.testing.expect(profile.getMetadata("region") == null);
     try std.testing.expect(!profile.removeMetadata("region"));
+}
+
+test "profile json roundtrip preserves fields and metadata" {
+    const allocator = std.testing.allocator;
+    var profile = try Profile.init(allocator, "did:key:zprofile");
+    defer profile.deinit();
+
+    try profile.setDisplayName("alice");
+    try profile.setTransportHint("quic");
+    try profile.setLocalLabel("laptop");
+    try profile.setMetadata("region", "eu");
+    try profile.setMetadata("device", "workstation");
+
+    const encoded = try profile.toJsonAlloc(allocator);
+    defer allocator.free(encoded);
+
+    var decoded = try Profile.fromJson(allocator, encoded);
+    defer decoded.deinit();
+
+    try std.testing.expectEqualStrings(profile.did, decoded.did);
+    try std.testing.expectEqualStrings(profile.display_name.?, decoded.display_name.?);
+    try std.testing.expectEqualStrings(profile.transport_hint.?, decoded.transport_hint.?);
+    try std.testing.expectEqualStrings(profile.local_label.?, decoded.local_label.?);
+    try std.testing.expectEqualStrings("eu", decoded.getMetadata("region").?);
+    try std.testing.expectEqualStrings("workstation", decoded.getMetadata("device").?);
+}
+
+test "profile json escapes special characters" {
+    const allocator = std.testing.allocator;
+    var profile = try Profile.init(allocator, "did:key:zprofile");
+    defer profile.deinit();
+
+    try profile.setDisplayName("alice \"quoted\"");
+    try profile.setMetadata("note", "line-1\nline-2");
+
+    const encoded = try profile.toJsonAlloc(allocator);
+    defer allocator.free(encoded);
+
+    var decoded = try Profile.fromJson(allocator, encoded);
+    defer decoded.deinit();
+
+    try std.testing.expectEqualStrings("alice \"quoted\"", decoded.display_name.?);
+    try std.testing.expectEqualStrings("line-1\nline-2", decoded.getMetadata("note").?);
 }
