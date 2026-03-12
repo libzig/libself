@@ -9,6 +9,7 @@ pub const Error = error{
 };
 
 const header = "libself-trust-v1\n";
+const max_store_bytes = 1024 * 1024;
 
 pub fn serializeAlloc(allocator: std.mem.Allocator, store: *const store_mod.Store) ![]u8 {
     var out: std.ArrayList(u8) = .empty;
@@ -47,6 +48,35 @@ pub fn deserializeInto(store: *store_mod.Store, bytes: []const u8) !void {
         try validateField(did, error.InvalidDid);
         try store.pin(subject, did);
     }
+}
+
+pub fn saveToDir(
+    allocator: std.mem.Allocator,
+    store: *const store_mod.Store,
+    dir: std.fs.Dir,
+    sub_path: []const u8,
+) !void {
+    const encoded = try serializeAlloc(allocator, store);
+    defer allocator.free(encoded);
+
+    try dir.writeFile(.{
+        .sub_path = sub_path,
+        .data = encoded,
+    });
+}
+
+pub fn loadFromDir(
+    allocator: std.mem.Allocator,
+    dir: std.fs.Dir,
+    sub_path: []const u8,
+) !store_mod.Store {
+    const encoded = try dir.readFileAlloc(allocator, sub_path, max_store_bytes);
+    defer allocator.free(encoded);
+
+    var store = store_mod.Store.init(allocator);
+    errdefer store.deinit();
+    try deserializeInto(&store, encoded);
+    return store;
 }
 
 fn validateField(field: []const u8, comptime err: anyerror) err!void {
@@ -90,5 +120,34 @@ test "trust file format rejects invalid records" {
     try std.testing.expectError(
         error.InvalidRecord,
         deserializeInto(&store, header ++ "peer-a did:key:zfirst\n"),
+    );
+}
+
+test "trust file format saves and loads from disk" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var original = store_mod.Store.init(allocator);
+    defer original.deinit();
+    try original.pin("peer-a", "did:key:zfirst");
+    try original.pin("peer-b", "did:key:zsecond");
+
+    try saveToDir(allocator, &original, tmp.dir, "trust.db");
+
+    var loaded = try loadFromDir(allocator, tmp.dir, "trust.db");
+    defer loaded.deinit();
+
+    try std.testing.expectEqualStrings("did:key:zfirst", loaded.getPinnedDid("peer-a").?);
+    try std.testing.expectEqualStrings("did:key:zsecond", loaded.getPinnedDid("peer-b").?);
+}
+
+test "trust file format load propagates missing file" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    try std.testing.expectError(
+        error.FileNotFound,
+        loadFromDir(std.testing.allocator, tmp.dir, "missing.db"),
     );
 }
