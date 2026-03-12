@@ -66,6 +66,14 @@ pub const AuthenticatedConnection = struct {
         return if (self.peer) |peer| peer.trust else null;
     }
 
+    pub fn localContext(self: *const AuthenticatedConnection) !types.AuthContext {
+        return session.localAuthContext(self.allocator, self.connection, "");
+    }
+
+    pub fn peerContext(self: *const AuthenticatedConnection) !types.AuthContext {
+        return session.peerAuthContext(self.allocator, self.connection, self.peer_subject);
+    }
+
     pub fn newPeerChallenge(
         self: *const AuthenticatedConnection,
         nonce: [32]u8,
@@ -229,6 +237,24 @@ test "authenticated connection builds peer challenge from attached subject" {
 
     try std.testing.expectEqual(@as(@TypeOf(challenge.role), .server), challenge.role);
     try std.testing.expectEqualSlices(u8, &nonce, &challenge.nonce);
+}
+
+test "authenticated connection derives local and peer contexts" {
+    const allocator = std.testing.allocator;
+    var connection = try initNegotiatedClient(allocator, 0x97);
+    defer connection.deinit();
+
+    var attached = try AuthenticatedConnection.init(allocator, &connection, "peer-z");
+    defer attached.deinit();
+
+    const local = try attached.localContext();
+    const peer = try attached.peerContext();
+
+    try std.testing.expectEqual(@as(@TypeOf(local.role), .client), local.role);
+    try std.testing.expectEqual(@as(@TypeOf(peer.role), .server), peer.role);
+    try std.testing.expectEqualStrings("", local.subject);
+    try std.testing.expectEqualStrings("peer-z", peer.subject);
+    try std.testing.expectEqualSlices(u8, &local.binding.hash, &peer.binding.hash);
 }
 
 test "authenticated connection signs local proof with attached transport binding" {
