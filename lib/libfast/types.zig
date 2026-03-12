@@ -6,10 +6,14 @@ const trust_policy = @import("../trust/policy.zig");
 pub const TranscriptBinding = struct {
     hash: [32]u8,
 
-    pub fn fromTranscript(transcript: []const u8) TranscriptBinding {
+    pub fn fromBytes(bytes: []const u8) TranscriptBinding {
         var hash: [32]u8 = undefined;
-        std.crypto.hash.Blake3.hash(transcript, &hash, .{});
+        std.crypto.hash.Blake3.hash(bytes, &hash, .{});
         return .{ .hash = hash };
+    }
+
+    pub fn fromTranscript(transcript: []const u8) TranscriptBinding {
+        return fromBytes(transcript);
     }
 };
 
@@ -59,6 +63,14 @@ test "transcript binding is deterministic" {
 
     try std.testing.expectEqualSlices(u8, &a.hash, &b.hash);
     try std.testing.expect(!std.mem.eql(u8, &a.hash, &c.hash));
+}
+
+test "transcript binding from bytes matches transcript helper" {
+    const transcript = "libfast-bytes";
+    const from_bytes = TranscriptBinding.fromBytes(transcript);
+    const from_transcript = TranscriptBinding.fromTranscript(transcript);
+
+    try std.testing.expectEqualSlices(u8, &from_bytes.hash, &from_transcript.hash);
 }
 
 test "auth context derives a challenge from transcript binding" {
