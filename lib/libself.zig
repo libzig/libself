@@ -18,6 +18,7 @@ pub const trust = struct {
 };
 pub const libfast = struct {
     pub const adapter = @import("libfast/adapter.zig");
+    pub const binding = @import("libfast/binding.zig");
     pub const messages = @import("libfast/messages.zig");
     pub const session = @import("libfast/session.zig");
     pub const types = @import("libfast/types.zig");
@@ -41,7 +42,10 @@ pub fn hello() []const u8 {
 }
 
 test {
-    const allocator = @import("std").testing.allocator;
+    const std = @import("std");
+    std.testing.refAllDecls(@This());
+
+    const allocator = std.testing.allocator;
     const key_pair = try identity.KeyPair.fromSeed([_]u8{0x99} ** 32);
     const did_uri = try DidKey.fromKeyPair(key_pair).encode(allocator);
     defer allocator.free(did_uri);
@@ -83,11 +87,11 @@ test {
     );
     defer libfast_peer.deinit();
 
-    try @import("std").testing.expectEqualStrings("hello from libself", hello());
-    try @import("std").testing.expectEqualStrings(did_uri, document.id);
-    try @import("std").testing.expectEqual(
+    try std.testing.expectEqualStrings("hello from libself", hello());
+    try std.testing.expectEqualStrings(did_uri, document.id);
+    try std.testing.expectEqual(
         TrustDecision.accepted_and_pinned,
         libfast_peer.trust,
     );
-    try @import("std").testing.expectEqualStrings(did_uri, libfast_peer.did);
+    try std.testing.expectEqualStrings(did_uri, libfast_peer.did);
 }
