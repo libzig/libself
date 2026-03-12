@@ -365,3 +365,39 @@ test "authenticated connection keeps pinned peer when tofu rejects replacement" 
     try std.testing.expectEqualStrings(first.did, attached.peerDid().?);
     try std.testing.expectEqual(trust_policy.Decision.accepted_and_pinned, attached.peerTrust().?);
 }
+
+test "authenticated connection rejects proof replay across a different binding" {
+    const allocator = std.testing.allocator;
+    var original_connection = try initNegotiatedClient(allocator, 0x99);
+    defer original_connection.deinit();
+    var replay_connection = try initNegotiatedClient(allocator, 0xa0);
+    defer replay_connection.deinit();
+
+    var original = try AuthenticatedConnection.init(allocator, &original_connection, "peer-f");
+    defer original.deinit();
+    var replayed = try AuthenticatedConnection.init(allocator, &replay_connection, "peer-f");
+    defer replayed.deinit();
+
+    var peer_local = try local_identity.LocalIdentity.fromSeed(allocator, [_]u8{0xa1} ** 32);
+    defer peer_local.deinit();
+
+    const challenge = try original.newPeerChallenge([_]u8{0xa2} ** 32);
+    const original_context = try original.peerContext();
+    var proof = try session.signProofMessage(
+        allocator,
+        peer_local.key_pair,
+        peer_local.did,
+        original_context,
+        challenge,
+    );
+    defer proof.deinit(allocator);
+
+    var store = trust_store.Store.init(allocator);
+    defer store.deinit();
+
+    try std.testing.expectError(
+        error.InvalidSignature,
+        replayed.verifyPeerProof(.accept_any, &store, challenge, proof),
+    );
+    try std.testing.expect(!replayed.isAuthenticated());
+}
