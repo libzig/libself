@@ -1,0 +1,12 @@
+.{
+    .name = .libself,
+    .version = "0.0.1",
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "bin",
+        "examples",
+        "lib",
+    },
+    .fingerprint = 0x477c652f68732539,
+}
