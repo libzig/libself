@@ -1,0 +1,88 @@
+const std = @import("std");
+const adapter = @import("adapter.zig");
+const libfast = @import("libfast");
+const types = @import("types.zig");
+
+pub const AuthenticatedConnection = struct {
+    allocator: std.mem.Allocator,
+    connection: *libfast.QuicConnection,
+    peer_subject: []u8,
+    peer: ?types.PeerIdentity = null,
+
+    pub fn init(
+        allocator: std.mem.Allocator,
+        connection: *libfast.QuicConnection,
+        peer_subject: []const u8,
+    ) !AuthenticatedConnection {
+        try adapter.requireHandshakeReady(connection);
+        return .{
+            .allocator = allocator,
+            .connection = connection,
+            .peer_subject = try allocator.dupe(u8, peer_subject),
+        };
+    }
+
+    pub fn deinit(self: *AuthenticatedConnection) void {
+        if (self.peer) |*peer| {
+            peer.deinit();
+            self.peer = null;
+        }
+        self.allocator.free(self.peer_subject);
+    }
+
+    pub fn subject(self: *const AuthenticatedConnection) []const u8 {
+        return self.peer_subject;
+    }
+
+    pub fn isAuthenticated(self: *const AuthenticatedConnection) bool {
+        return self.peer != null;
+    }
+};
+
+fn initNegotiatedClient(allocator: std.mem.Allocator, seed: u8) !libfast.QuicConnection {
+    var connection = try libfast.QuicConnection.init(
+        allocator,
+        libfast.QuicConfig.sshClient("example.com", ""),
+    );
+    errdefer connection.deinit();
+
+    const internal = try allocator.create(libfast.connection.Connection);
+    errdefer allocator.destroy(internal);
+
+    const local_cid = try libfast.ConnectionId.init(&([_]u8{seed} ** 8));
+    const remote_cid = try libfast.ConnectionId.init(&([_]u8{seed +% 1} ** 8));
+    internal.* = try libfast.connection.Connection.initClient(allocator, .ssh, local_cid, remote_cid);
+    connection.internal_conn = internal;
+
+    const encoded_params = try libfast.transport_params.TransportParams.defaultServer().encode(allocator);
+    defer allocator.free(encoded_params);
+
+    try connection.applyPeerTransportParams(encoded_params);
+    connection.state = .established;
+    return connection;
+}
+
+test "authenticated connection requires handshake-ready transport" {
+    var connection = try libfast.QuicConnection.init(
+        std.testing.allocator,
+        libfast.QuicConfig.sshClient("example.com", ""),
+    );
+    defer connection.deinit();
+
+    try std.testing.expectError(
+        error.HandshakeNotReady,
+        AuthenticatedConnection.init(std.testing.allocator, &connection, "peer-a"),
+    );
+}
+
+test "authenticated connection stores subject and starts unauthenticated" {
+    const allocator = std.testing.allocator;
+    var connection = try initNegotiatedClient(allocator, 0x91);
+    defer connection.deinit();
+
+    var attached = try AuthenticatedConnection.init(allocator, &connection, "peer-a");
+    defer attached.deinit();
+
+    try std.testing.expectEqualStrings("peer-a", attached.subject());
+    try std.testing.expect(!attached.isAuthenticated());
+}
