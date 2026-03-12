@@ -24,6 +24,30 @@ pub fn peerRole(connection: *const libfast.QuicConnection) auth_challenge.Role {
     };
 }
 
+pub fn isHandshakeReady(connection: *const libfast.QuicConnection) bool {
+    return connection.isHandshakeNegotiated();
+}
+
+pub fn requireHandshakeReady(connection: *const libfast.QuicConnection) error{HandshakeNotReady}!void {
+    if (!isHandshakeReady(connection)) return error.HandshakeNotReady;
+}
+
+fn initNegotiatedClient(allocator: std.mem.Allocator) !libfast.QuicConnection {
+    var connection = try libfast.QuicConnection.init(
+        allocator,
+        libfast.QuicConfig.sshClient("example.com", ""),
+    );
+    errdefer connection.deinit();
+
+    try connection.connect("127.0.0.1", 4433);
+    const encoded_params = try libfast.transport_params.TransportParams.defaultServer().encode(allocator);
+    defer allocator.free(encoded_params);
+
+    try connection.applyPeerTransportParams(encoded_params);
+    connection.state = .established;
+    return connection;
+}
+
 test "libfast adapter reads public connection state" {
     var connection = try libfast.QuicConnection.init(
         std.testing.allocator,
@@ -52,4 +76,21 @@ test "libfast adapter maps local and peer roles" {
     try std.testing.expectEqual(auth_challenge.Role.server, peerRole(&client));
     try std.testing.expectEqual(auth_challenge.Role.server, localRole(&server));
     try std.testing.expectEqual(auth_challenge.Role.client, peerRole(&server));
+}
+
+test "libfast adapter reports handshake readiness" {
+    var idle = try libfast.QuicConnection.init(
+        std.testing.allocator,
+        libfast.QuicConfig.sshClient("example.com", ""),
+    );
+    defer idle.deinit();
+
+    try std.testing.expect(!isHandshakeReady(&idle));
+    try std.testing.expectError(error.HandshakeNotReady, requireHandshakeReady(&idle));
+
+    var negotiated = try initNegotiatedClient(std.testing.allocator);
+    defer negotiated.deinit();
+
+    try std.testing.expect(isHandshakeReady(&negotiated));
+    try requireHandshakeReady(&negotiated);
 }
