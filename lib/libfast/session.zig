@@ -17,6 +17,8 @@ pub const VerifyError = error{
     InvalidSignature,
 } || std.mem.Allocator.Error;
 
+pub const VerifyConnectionError = VerifyError || binding_mod.Error;
+
 pub fn localAuthContext(
     allocator: std.mem.Allocator,
     connection: *const libfast.QuicConnection,
@@ -113,6 +115,19 @@ pub fn verifyProofMessage(
     if (decision == .rejected) return error.TrustRejected;
 
     return types.PeerIdentity.init(allocator, proof_message.did, parsed.public_key, decision);
+}
+
+pub fn verifyPeerProofMessage(
+    allocator: std.mem.Allocator,
+    mode: trust_policy.Mode,
+    store: *trust_store.Store,
+    connection: *const libfast.QuicConnection,
+    subject: []const u8,
+    challenge_message: messages.ChallengeMessage,
+    proof_message: messages.ProofMessage,
+) VerifyConnectionError!types.PeerIdentity {
+    const context = try peerAuthContext(allocator, connection, subject);
+    return verifyProofMessage(allocator, mode, store, context, challenge_message, proof_message);
 }
 
 fn initNegotiatedClient(allocator: std.mem.Allocator, seed: u8) !libfast.QuicConnection {
@@ -280,4 +295,46 @@ test "libfast session signs a proof from the negotiated local role" {
     defer proof.deinit(allocator);
 
     try proof_mod.verifyProof(allocator, context.challenge(challenge_message.nonce), proof);
+}
+
+test "libfast session verifies a peer proof from the negotiated connection" {
+    const allocator = std.testing.allocator;
+    var connection = try initNegotiatedClient(allocator, 0xa4);
+    defer connection.deinit();
+
+    const key_pair = try identity.KeyPair.fromSeed([_]u8{0x55} ** 32);
+    const did = try did_key.DidKey.fromKeyPair(key_pair).encode(allocator);
+    defer allocator.free(did);
+
+    const challenge_message = try newPeerChallengeMessage(
+        allocator,
+        &connection,
+        "peer-a",
+        [_]u8{0x56} ** 32,
+    );
+    const peer_context = try peerAuthContext(allocator, &connection, "peer-a");
+    var proof_message = try signProofMessage(
+        allocator,
+        key_pair,
+        did,
+        peer_context,
+        challenge_message,
+    );
+    defer proof_message.deinit(allocator);
+
+    var store = trust_store.Store.init(allocator);
+    defer store.deinit();
+    var peer = try verifyPeerProofMessage(
+        allocator,
+        .tofu,
+        &store,
+        &connection,
+        "peer-a",
+        challenge_message,
+        proof_message,
+    );
+    defer peer.deinit();
+
+    try std.testing.expectEqualStrings(did, peer.did);
+    try std.testing.expectEqual(trust_policy.Decision.accepted_and_pinned, peer.trust);
 }
