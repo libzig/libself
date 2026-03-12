@@ -7,6 +7,7 @@ const node_id = @import("../node_id.zig");
 const proof_mod = @import("../auth/proof.zig");
 const session = @import("session.zig");
 const trust_policy = @import("../trust/policy.zig");
+const trust_store = @import("../trust/store.zig");
 const types = @import("types.zig");
 
 pub const AuthenticatedConnection = struct {
@@ -89,6 +90,27 @@ pub const AuthenticatedConnection = struct {
             local.did,
             challenge,
         );
+    }
+
+    pub fn verifyPeerProof(
+        self: *AuthenticatedConnection,
+        mode: trust_policy.Mode,
+        store: *trust_store.Store,
+        challenge: messages.ChallengeMessage,
+        proof: messages.ProofMessage,
+    ) !trust_policy.Decision {
+        const peer = try session.verifyPeerProofMessage(
+            self.allocator,
+            mode,
+            store,
+            self.connection,
+            self.peer_subject,
+            challenge,
+            proof,
+        );
+        const decision = peer.trust;
+        self.attachPeer(peer);
+        return decision;
     }
 };
 
@@ -235,4 +257,37 @@ test "authenticated connection signs local proof with attached transport binding
         context.challenge(challenge.nonce),
         decoded,
     );
+}
+
+test "authenticated connection verifies and attaches peer identity" {
+    const allocator = std.testing.allocator;
+    var connection = try initNegotiatedClient(allocator, 0x96);
+    defer connection.deinit();
+
+    var attached = try AuthenticatedConnection.init(allocator, &connection, "peer-d");
+    defer attached.deinit();
+
+    var peer_local = try local_identity.LocalIdentity.fromSeed(allocator, [_]u8{0x81} ** 32);
+    defer peer_local.deinit();
+
+    const challenge = try attached.newPeerChallenge([_]u8{0x82} ** 32);
+    const peer_context = try session.peerAuthContext(allocator, &connection, "peer-d");
+    var proof = try session.signProofMessage(
+        allocator,
+        peer_local.key_pair,
+        peer_local.did,
+        peer_context,
+        challenge,
+    );
+    defer proof.deinit(allocator);
+
+    var store = trust_store.Store.init(allocator);
+    defer store.deinit();
+
+    const decision = try attached.verifyPeerProof(.tofu, &store, challenge, proof);
+
+    try std.testing.expectEqual(trust_policy.Decision.accepted_and_pinned, decision);
+    try std.testing.expect(attached.isAuthenticated());
+    try std.testing.expectEqualStrings(peer_local.did, attached.peerDid().?);
+    try std.testing.expectEqual(trust_policy.Decision.accepted_and_pinned, attached.peerTrust().?);
 }
