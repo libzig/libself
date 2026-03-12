@@ -19,6 +19,7 @@ pub const trust = struct {
 pub const libfast = struct {
     pub const adapter = @import("libfast/adapter.zig");
     pub const binding = @import("libfast/binding.zig");
+    pub const local_identity = @import("libfast/local_identity.zig");
     pub const messages = @import("libfast/messages.zig");
     pub const session = @import("libfast/session.zig");
     pub const types = @import("libfast/types.zig");
@@ -33,6 +34,7 @@ pub const TrustDecision = trust.policy.Decision;
 pub const TrustStore = trust.store.Store;
 pub const LibfastTranscriptBinding = libfast.types.TranscriptBinding;
 pub const LibfastAuthContext = libfast.types.AuthContext;
+pub const LibfastLocalIdentity = libfast.local_identity.LocalIdentity;
 pub const LibfastPeerIdentity = libfast.types.PeerIdentity;
 pub const LibfastChallengeMessage = libfast.messages.ChallengeMessage;
 pub const LibfastProofMessage = libfast.messages.ProofMessage;
@@ -56,6 +58,7 @@ test {
     std.testing.refAllDecls(trust.store);
     std.testing.refAllDecls(libfast.adapter);
     std.testing.refAllDecls(libfast.binding);
+    std.testing.refAllDecls(libfast.local_identity);
     std.testing.refAllDecls(libfast.messages);
     std.testing.refAllDecls(libfast.session);
     std.testing.refAllDecls(libfast.types);
