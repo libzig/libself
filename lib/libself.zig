@@ -6,6 +6,9 @@ pub const did = struct {
     pub const key = @import("did/key.zig");
     pub const resolver = @import("did/resolver.zig");
 };
+pub const auth = struct {
+    pub const challenge = @import("auth/challenge.zig");
+};
 pub const DidKey = did.key.DidKey;
 pub const Document = did.document.Document;
 
