@@ -2,6 +2,7 @@ const std = @import("std");
 const adapter = @import("adapter.zig");
 const libfast = @import("libfast");
 const node_id = @import("../node_id.zig");
+const session = @import("session.zig");
 const trust_policy = @import("../trust/policy.zig");
 const types = @import("types.zig");
 
@@ -59,6 +60,18 @@ pub const AuthenticatedConnection = struct {
 
     pub fn peerTrust(self: *const AuthenticatedConnection) ?trust_policy.Decision {
         return if (self.peer) |peer| peer.trust else null;
+    }
+
+    pub fn newPeerChallenge(
+        self: *const AuthenticatedConnection,
+        nonce: [32]u8,
+    ) !@import("messages.zig").ChallengeMessage {
+        return session.newPeerChallengeMessage(
+            self.allocator,
+            self.connection,
+            self.peer_subject,
+            nonce,
+        );
     }
 };
 
@@ -162,4 +175,19 @@ test "authenticated connection replaces an existing peer identity" {
 
     try std.testing.expectEqualStrings("did:key:zsecond", attached.peerDid().?);
     try std.testing.expectEqual(trust_policy.Decision.accepted_and_pinned, attached.peerTrust().?);
+}
+
+test "authenticated connection builds peer challenge from attached subject" {
+    const allocator = std.testing.allocator;
+    var connection = try initNegotiatedClient(allocator, 0x94);
+    defer connection.deinit();
+
+    var attached = try AuthenticatedConnection.init(allocator, &connection, "peer-b");
+    defer attached.deinit();
+
+    const nonce = [_]u8{0x61} ** 32;
+    const challenge = try attached.newPeerChallenge(nonce);
+
+    try std.testing.expectEqual(@as(@TypeOf(challenge.role), .server), challenge.role);
+    try std.testing.expectEqualSlices(u8, &nonce, &challenge.nonce);
 }
