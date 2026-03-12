@@ -155,6 +155,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     libfast_example_module.addImport("libself", libself_module);
+    libfast_example_module.addImport("libfast", libfast_module);
 
     const libfast_example = b.addExecutable(.{
         .name = "libfast_identity_handshake",
