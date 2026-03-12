@@ -11,6 +11,7 @@ pub const auth = struct {
     pub const proof = @import("auth/proof.zig");
 };
 pub const trust = struct {
+    pub const file = @import("trust/file.zig");
     pub const policy = @import("trust/policy.zig");
     pub const store = @import("trust/store.zig");
 };

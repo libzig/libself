@@ -37,6 +37,10 @@ pub const Store = struct {
         entry.value_ptr.* = owned_did;
     }
 
+    pub fn getPinnedDid(self: *const Store, subject: []const u8) ?[]const u8 {
+        return self.pins.get(subject);
+    }
+
     pub fn evaluate(
         self: *Store,
         mode: policy.Mode,
