@@ -18,6 +18,7 @@ pub const trust = struct {
 };
 pub const libfast = struct {
     pub const messages = @import("libfast/messages.zig");
+    pub const session = @import("libfast/session.zig");
     pub const types = @import("libfast/types.zig");
 };
 pub const DidKey = did.key.DidKey;
