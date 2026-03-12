@@ -32,6 +32,8 @@ pub const TrustStore = trust.store.Store;
 pub const LibfastTranscriptBinding = libfast.types.TranscriptBinding;
 pub const LibfastAuthContext = libfast.types.AuthContext;
 pub const LibfastPeerIdentity = libfast.types.PeerIdentity;
+pub const LibfastChallengeMessage = libfast.messages.ChallengeMessage;
+pub const LibfastProofMessage = libfast.messages.ProofMessage;
 
 pub fn hello() []const u8 {
     return "hello from libself";
@@ -55,10 +57,36 @@ test {
     var store = TrustStore.init(allocator);
     defer store.deinit();
 
+    const libfast_context = LibfastAuthContext{
+        .subject = "peer-a",
+        .role = .server,
+        .binding = LibfastTranscriptBinding.fromTranscript("libself-smoke"),
+    };
+    const libfast_challenge = libfast.session.newChallengeMessage(libfast_context, [_]u8{0xbb} ** 32);
+    var libfast_proof = try libfast.session.signProofMessage(
+        allocator,
+        key_pair,
+        did_uri,
+        libfast_context,
+        libfast_challenge,
+    );
+    defer libfast_proof.deinit(allocator);
+
+    var libfast_peer = try libfast.session.verifyProofMessage(
+        allocator,
+        .tofu,
+        &store,
+        libfast_context,
+        libfast_challenge,
+        libfast_proof,
+    );
+    defer libfast_peer.deinit();
+
     try @import("std").testing.expectEqualStrings("hello from libself", hello());
     try @import("std").testing.expectEqualStrings(did_uri, document.id);
     try @import("std").testing.expectEqual(
         TrustDecision.accepted_and_pinned,
-        try store.evaluate(.tofu, "peer-a", did_uri),
+        libfast_peer.trust,
     );
+    try @import("std").testing.expectEqualStrings(did_uri, libfast_peer.did);
 }

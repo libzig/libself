@@ -141,4 +141,21 @@ pub fn build(b: *std.Build) void {
     const run_profile_example = b.addRunArtifact(profile_example);
     const run_profile_example_step = b.step("run-profile-roundtrip", "Run the profile roundtrip example");
     run_profile_example_step.dependOn(&run_profile_example.step);
+
+    const libfast_example_module = b.createModule(.{
+        .root_source_file = b.path("examples/libfast_identity_handshake.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    libfast_example_module.addImport("libself", libself_module);
+
+    const libfast_example = b.addExecutable(.{
+        .name = "libfast_identity_handshake",
+        .root_module = libfast_example_module,
+    });
+    b.installArtifact(libfast_example);
+
+    const run_libfast_example = b.addRunArtifact(libfast_example);
+    const run_libfast_example_step = b.step("run-libfast-identity-handshake", "Run the libfast identity handshake example");
+    run_libfast_example_step.dependOn(&run_libfast_example.step);
 }
