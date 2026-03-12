@@ -48,6 +48,16 @@ pub fn newChallengeMessage(context: types.AuthContext, nonce: [32]u8) messages.C
     };
 }
 
+pub fn newPeerChallengeMessage(
+    allocator: std.mem.Allocator,
+    connection: *const libfast.QuicConnection,
+    subject: []const u8,
+    nonce: [32]u8,
+) binding_mod.Error!messages.ChallengeMessage {
+    const context = try peerAuthContext(allocator, connection, subject);
+    return newChallengeMessage(context, nonce);
+}
+
 pub fn signProofMessage(
     allocator: std.mem.Allocator,
     key_pair: identity.KeyPair,
@@ -154,6 +164,20 @@ test "libfast session signs and verifies a proof message" {
 
     try std.testing.expectEqualStrings(did, peer.did);
     try std.testing.expectEqual(trust_policy.Decision.accepted_and_pinned, peer.trust);
+}
+
+test "libfast session creates a peer challenge from the connection role" {
+    const allocator = std.testing.allocator;
+    var connection = try initNegotiatedClient(allocator, 0xa2);
+    defer connection.deinit();
+
+    const nonce = [_]u8{0x33} ** 32;
+    const challenge = try newPeerChallengeMessage(allocator, &connection, "peer-a", nonce);
+
+    try std.testing.expectEqual(messages.ChallengeMessage{
+        .role = .server,
+        .nonce = nonce,
+    }, challenge);
 }
 
 test "libfast session rejects proof replayed against a different transcript" {
