@@ -1,6 +1,8 @@
 const std = @import("std");
 const adapter = @import("adapter.zig");
 const libfast = @import("libfast");
+const node_id = @import("../node_id.zig");
+const trust_policy = @import("../trust/policy.zig");
 const types = @import("types.zig");
 
 pub const AuthenticatedConnection = struct {
@@ -23,10 +25,7 @@ pub const AuthenticatedConnection = struct {
     }
 
     pub fn deinit(self: *AuthenticatedConnection) void {
-        if (self.peer) |*peer| {
-            peer.deinit();
-            self.peer = null;
-        }
+        self.clearPeer();
         self.allocator.free(self.peer_subject);
     }
 
@@ -36,6 +35,30 @@ pub const AuthenticatedConnection = struct {
 
     pub fn isAuthenticated(self: *const AuthenticatedConnection) bool {
         return self.peer != null;
+    }
+
+    pub fn attachPeer(self: *AuthenticatedConnection, peer: types.PeerIdentity) void {
+        self.clearPeer();
+        self.peer = peer;
+    }
+
+    pub fn clearPeer(self: *AuthenticatedConnection) void {
+        if (self.peer) |*peer| {
+            peer.deinit();
+            self.peer = null;
+        }
+    }
+
+    pub fn peerDid(self: *const AuthenticatedConnection) ?[]const u8 {
+        return if (self.peer) |peer| peer.did else null;
+    }
+
+    pub fn peerNodeId(self: *const AuthenticatedConnection) ?node_id.NodeId {
+        return if (self.peer) |peer| peer.node_id else null;
+    }
+
+    pub fn peerTrust(self: *const AuthenticatedConnection) ?trust_policy.Decision {
+        return if (self.peer) |peer| peer.trust else null;
     }
 };
 
@@ -85,4 +108,58 @@ test "authenticated connection stores subject and starts unauthenticated" {
 
     try std.testing.expectEqualStrings("peer-a", attached.subject());
     try std.testing.expect(!attached.isAuthenticated());
+}
+
+test "authenticated connection attaches and clears peer identity" {
+    const allocator = std.testing.allocator;
+    var connection = try initNegotiatedClient(allocator, 0x92);
+    defer connection.deinit();
+
+    var attached = try AuthenticatedConnection.init(allocator, &connection, "peer-a");
+    defer attached.deinit();
+
+    const public_key = [_]u8{0x44} ** 32;
+    attached.attachPeer(try types.PeerIdentity.init(
+        allocator,
+        "did:key:zpeer-a",
+        public_key,
+        .accepted,
+    ));
+
+    try std.testing.expect(attached.isAuthenticated());
+    try std.testing.expectEqualStrings("did:key:zpeer-a", attached.peerDid().?);
+    try std.testing.expectEqual(trust_policy.Decision.accepted, attached.peerTrust().?);
+    try std.testing.expectEqual(node_id.NodeId.fromPublicKey(public_key), attached.peerNodeId().?);
+
+    attached.clearPeer();
+
+    try std.testing.expect(!attached.isAuthenticated());
+    try std.testing.expect(attached.peerDid() == null);
+    try std.testing.expect(attached.peerNodeId() == null);
+    try std.testing.expect(attached.peerTrust() == null);
+}
+
+test "authenticated connection replaces an existing peer identity" {
+    const allocator = std.testing.allocator;
+    var connection = try initNegotiatedClient(allocator, 0x93);
+    defer connection.deinit();
+
+    var attached = try AuthenticatedConnection.init(allocator, &connection, "peer-a");
+    defer attached.deinit();
+
+    attached.attachPeer(try types.PeerIdentity.init(
+        allocator,
+        "did:key:zfirst",
+        [_]u8{0x51} ** 32,
+        .accepted,
+    ));
+    attached.attachPeer(try types.PeerIdentity.init(
+        allocator,
+        "did:key:zsecond",
+        [_]u8{0x52} ** 32,
+        .accepted_and_pinned,
+    ));
+
+    try std.testing.expectEqualStrings("did:key:zsecond", attached.peerDid().?);
+    try std.testing.expectEqual(trust_policy.Decision.accepted_and_pinned, attached.peerTrust().?);
 }
