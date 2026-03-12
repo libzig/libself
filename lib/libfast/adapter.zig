@@ -2,11 +2,13 @@ const std = @import("std");
 const auth_challenge = @import("../auth/challenge.zig");
 const libfast = @import("libfast");
 
-pub fn state(connection: *libfast.QuicConnection) libfast.ConnectionState {
-    return connection.getState();
+pub fn state(connection: *const libfast.QuicConnection) libfast.ConnectionState {
+    return connection.state;
 }
 
-pub fn negotiationSnapshot(connection: *const libfast.QuicConnection) ?libfast.NegotiationSnapshot {
+pub fn negotiationSnapshot(
+    connection: *const libfast.QuicConnection,
+) @TypeOf(connection.getNegotiationSnapshot()) {
     return connection.getNegotiationSnapshot();
 }
 
@@ -32,14 +34,21 @@ pub fn requireHandshakeReady(connection: *const libfast.QuicConnection) error{Ha
     if (!isHandshakeReady(connection)) return error.HandshakeNotReady;
 }
 
-fn initNegotiatedClient(allocator: std.mem.Allocator) !libfast.QuicConnection {
+fn initNegotiatedClient(allocator: std.mem.Allocator, seed: u8) !libfast.QuicConnection {
     var connection = try libfast.QuicConnection.init(
         allocator,
         libfast.QuicConfig.sshClient("example.com", ""),
     );
     errdefer connection.deinit();
 
-    try connection.connect("127.0.0.1", 4433);
+    const internal = try allocator.create(libfast.connection.Connection);
+    errdefer allocator.destroy(internal);
+
+    const local_cid = try libfast.ConnectionId.init(&([_]u8{seed} ** 8));
+    const remote_cid = try libfast.ConnectionId.init(&([_]u8{seed +% 1} ** 8));
+    internal.* = try libfast.connection.Connection.initClient(allocator, .ssh, local_cid, remote_cid);
+    connection.internal_conn = internal;
+
     const encoded_params = try libfast.transport_params.TransportParams.defaultServer().encode(allocator);
     defer allocator.free(encoded_params);
 
@@ -88,7 +97,7 @@ test "libfast adapter reports handshake readiness" {
     try std.testing.expect(!isHandshakeReady(&idle));
     try std.testing.expectError(error.HandshakeNotReady, requireHandshakeReady(&idle));
 
-    var negotiated = try initNegotiatedClient(std.testing.allocator);
+    var negotiated = try initNegotiatedClient(std.testing.allocator, 0x11);
     defer negotiated.deinit();
 
     try std.testing.expect(isHandshakeReady(&negotiated));

@@ -79,10 +79,10 @@ pub fn loadFromDir(
     return store;
 }
 
-fn validateField(field: []const u8, comptime err: anyerror) err!void {
-    if (field.len == 0) return err;
-    if (std.mem.indexOfScalar(u8, field, '\t') != null) return err;
-    if (std.mem.indexOfScalar(u8, field, '\n') != null) return err;
+fn validateField(field: []const u8, comptime err_value: anytype) @TypeOf(err_value)!void {
+    if (field.len == 0) return err_value;
+    if (std.mem.indexOfScalar(u8, field, '\t') != null) return err_value;
+    if (std.mem.indexOfScalar(u8, field, '\n') != null) return err_value;
 }
 
 test "trust file format serializes and deserializes store entries" {

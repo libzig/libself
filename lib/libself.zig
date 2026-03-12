@@ -44,6 +44,21 @@ pub fn hello() []const u8 {
 test {
     const std = @import("std");
     std.testing.refAllDecls(@This());
+    std.testing.refAllDecls(base58btc);
+    std.testing.refAllDecls(identity);
+    std.testing.refAllDecls(did.document);
+    std.testing.refAllDecls(did.key);
+    std.testing.refAllDecls(did.resolver);
+    std.testing.refAllDecls(auth.challenge);
+    std.testing.refAllDecls(auth.proof);
+    std.testing.refAllDecls(trust.file);
+    std.testing.refAllDecls(trust.policy);
+    std.testing.refAllDecls(trust.store);
+    std.testing.refAllDecls(libfast.adapter);
+    std.testing.refAllDecls(libfast.binding);
+    std.testing.refAllDecls(libfast.messages);
+    std.testing.refAllDecls(libfast.session);
+    std.testing.refAllDecls(libfast.types);
 
     const allocator = std.testing.allocator;
     const key_pair = try identity.KeyPair.fromSeed([_]u8{0x99} ** 32);

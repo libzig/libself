@@ -1,6 +1,7 @@
 const std = @import("std");
 const adapter = @import("adapter.zig");
 const libfast = @import("libfast");
+const types = @import("types.zig");
 
 pub const Error = error{
     HandshakeNotReady,
@@ -19,7 +20,7 @@ pub fn materialAlloc(allocator: std.mem.Allocator, connection: *const libfast.Qu
     try out.appendSlice(allocator, "libself-libfast-binding-v1");
     try out.append(allocator, @intFromEnum(adapter.localRole(connection)));
     try out.append(allocator, @intFromEnum(adapter.peerRole(connection)));
-    try out.append(allocator, @intFromEnum(connection.getState()));
+    try out.append(allocator, @intFromEnum(connection.state));
     try out.append(allocator, @intFromEnum(snapshot.mode));
     try out.append(allocator, @intFromBool(snapshot.is_established));
     try appendCid(&out, allocator, internal.local_conn_id.slice());
@@ -47,6 +48,15 @@ pub fn materialAlloc(allocator: std.mem.Allocator, connection: *const libfast.Qu
     return out.toOwnedSlice(allocator);
 }
 
+pub fn transcriptBinding(
+    allocator: std.mem.Allocator,
+    connection: *const libfast.QuicConnection,
+) Error!types.TranscriptBinding {
+    const material = try materialAlloc(allocator, connection);
+    defer allocator.free(material);
+    return types.TranscriptBinding.fromBytes(material);
+}
+
 fn appendU16(out: *std.ArrayList(u8), allocator: std.mem.Allocator, value: u16) !void {
     var bytes: [2]u8 = undefined;
     std.mem.writeInt(u16, &bytes, value, .big);
@@ -69,14 +79,21 @@ fn appendBytes16(out: *std.ArrayList(u8), allocator: std.mem.Allocator, bytes: [
     try out.appendSlice(allocator, bytes);
 }
 
-fn initNegotiatedClient(allocator: std.mem.Allocator) !libfast.QuicConnection {
+fn initNegotiatedClient(allocator: std.mem.Allocator, seed: u8) !libfast.QuicConnection {
     var connection = try libfast.QuicConnection.init(
         allocator,
         libfast.QuicConfig.sshClient("example.com", ""),
     );
     errdefer connection.deinit();
 
-    try connection.connect("127.0.0.1", 4433);
+    const internal = try allocator.create(libfast.connection.Connection);
+    errdefer allocator.destroy(internal);
+
+    const local_cid = try libfast.ConnectionId.init(&([_]u8{seed} ** 8));
+    const remote_cid = try libfast.ConnectionId.init(&([_]u8{seed +% 1} ** 8));
+    internal.* = try libfast.connection.Connection.initClient(allocator, .ssh, local_cid, remote_cid);
+    connection.internal_conn = internal;
+
     const encoded_params = try libfast.transport_params.TransportParams.defaultServer().encode(allocator);
     defer allocator.free(encoded_params);
 
@@ -100,7 +117,7 @@ test "binding material rejects unnegotiated connections" {
 
 test "binding material is deterministic for the same connection state" {
     const allocator = std.testing.allocator;
-    var connection = try initNegotiatedClient(allocator);
+    var connection = try initNegotiatedClient(allocator, 0x21);
     defer connection.deinit();
 
     const first = try materialAlloc(allocator, &connection);
@@ -113,9 +130,9 @@ test "binding material is deterministic for the same connection state" {
 
 test "binding material changes across different negotiated connections" {
     const allocator = std.testing.allocator;
-    var first = try initNegotiatedClient(allocator);
+    var first = try initNegotiatedClient(allocator, 0x31);
     defer first.deinit();
-    var second = try initNegotiatedClient(allocator);
+    var second = try initNegotiatedClient(allocator, 0x41);
     defer second.deinit();
 
     const first_material = try materialAlloc(allocator, &first);
@@ -124,4 +141,28 @@ test "binding material changes across different negotiated connections" {
     defer allocator.free(second_material);
 
     try std.testing.expect(!std.mem.eql(u8, first_material, second_material));
+}
+
+test "binding hash is stable for the same negotiated connection" {
+    const allocator = std.testing.allocator;
+    var connection = try initNegotiatedClient(allocator, 0x51);
+    defer connection.deinit();
+
+    const first = try transcriptBinding(allocator, &connection);
+    const second = try transcriptBinding(allocator, &connection);
+
+    try std.testing.expectEqualSlices(u8, &first.hash, &second.hash);
+}
+
+test "binding hash changes across different negotiated connections" {
+    const allocator = std.testing.allocator;
+    var first = try initNegotiatedClient(allocator, 0x61);
+    defer first.deinit();
+    var second = try initNegotiatedClient(allocator, 0x71);
+    defer second.deinit();
+
+    const first_binding = try transcriptBinding(allocator, &first);
+    const second_binding = try transcriptBinding(allocator, &second);
+
+    try std.testing.expect(!std.mem.eql(u8, &first_binding.hash, &second_binding.hash));
 }
