@@ -3,18 +3,25 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const libsafe_dep = b.dependency("libsafe", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const libsafe_module = libsafe_dep.module("libsafe");
 
     const libself_module = b.createModule(.{
         .root_source_file = b.path("lib/libself.zig"),
         .target = target,
         .optimize = optimize,
     });
+    libself_module.addImport("libsafe", libsafe_module);
 
-    _ = b.addModule("libself", .{
+    const exported = b.addModule("libself", .{
         .root_source_file = b.path("lib/libself.zig"),
         .target = target,
         .optimize = optimize,
     });
+    exported.addImport("libsafe", libsafe_module);
 
     const lib = b.addLibrary(.{
         .name = "self",
@@ -37,6 +44,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     bin_module.addImport("libself", libself_module);
+    bin_module.addImport("libsafe", libsafe_module);
 
     const bin = b.addExecutable(.{
         .name = "libself",
@@ -53,6 +61,8 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    example_module.addImport("libself", libself_module);
+    example_module.addImport("libsafe", libsafe_module);
 
     const example = b.addExecutable(.{
         .name = "hello_world",

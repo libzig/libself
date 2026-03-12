@@ -1,3 +1,5 @@
+pub const identity = @import("identity.zig");
+
 pub fn hello() []const u8 {
     return "hello from libself";
 }

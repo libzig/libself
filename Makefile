@@ -1,14 +1,16 @@
 .PHONY: build test ci install
 
+ZIG_CACHE_ENV = ZIG_GLOBAL_CACHE_DIR=.zig-global-cache ZIG_LOCAL_CACHE_DIR=.zig-cache
+
 build:
-	zig build -Doptimize=ReleaseFast
+	$(ZIG_CACHE_ENV) zig build -Doptimize=ReleaseFast
 
 test:
-	zig build test --summary all
+	$(ZIG_CACHE_ENV) zig build test --summary all
 
 ci:
-	zig build test --summary all
-	zig build -Doptimize=ReleaseFast
+	$(ZIG_CACHE_ENV) zig build test --summary all
+	$(ZIG_CACHE_ENV) zig build -Doptimize=ReleaseFast
 
 install: build
 	install -Dm644 "./zig-out/lib/libself.a" "$(HOME)/.local/lib/libself.a"
