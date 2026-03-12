@@ -74,6 +74,17 @@ pub fn signProofMessage(
     return messages.ProofMessage.fromProof(allocator, proof);
 }
 
+pub fn signLocalProofMessage(
+    allocator: std.mem.Allocator,
+    connection: *const libfast.QuicConnection,
+    key_pair: identity.KeyPair,
+    did: []const u8,
+    challenge_message: messages.ChallengeMessage,
+) !messages.ProofMessage {
+    const context = try localAuthContext(allocator, connection, "");
+    return signProofMessage(allocator, key_pair, did, context, challenge_message);
+}
+
 pub fn verifyProofMessage(
     allocator: std.mem.Allocator,
     mode: trust_policy.Mode,
@@ -240,4 +251,33 @@ test "libfast session enforces trust policy" {
         error.TrustRejected,
         verifyProofMessage(allocator, .tofu, &store, context, challenge_message, second_message),
     );
+}
+
+test "libfast session signs a proof from the negotiated local role" {
+    const allocator = std.testing.allocator;
+    var connection = try initNegotiatedClient(allocator, 0xa3);
+    defer connection.deinit();
+
+    const key_pair = try identity.KeyPair.fromSeed([_]u8{0x44} ** 32);
+    const did = try did_key.DidKey.fromKeyPair(key_pair).encode(allocator);
+    defer allocator.free(did);
+
+    const context = try localAuthContext(allocator, &connection, "");
+    const challenge_message = messages.ChallengeMessage{
+        .role = .client,
+        .nonce = [_]u8{0x45} ** 32,
+    };
+    var proof_message = try signLocalProofMessage(
+        allocator,
+        &connection,
+        key_pair,
+        did,
+        challenge_message,
+    );
+    defer proof_message.deinit(allocator);
+
+    var proof = try proof_message.toProof(allocator);
+    defer proof.deinit(allocator);
+
+    try proof_mod.verifyProof(allocator, context.challenge(challenge_message.nonce), proof);
 }
