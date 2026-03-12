@@ -16,6 +16,9 @@ pub const trust = struct {
     pub const policy = @import("trust/policy.zig");
     pub const store = @import("trust/store.zig");
 };
+pub const libfast = struct {
+    pub const types = @import("libfast/types.zig");
+};
 pub const DidKey = did.key.DidKey;
 pub const Document = did.document.Document;
 pub const resolveDidKey = did.resolver.resolveDidKey;
@@ -24,6 +27,9 @@ pub const Proof = auth.proof.Proof;
 pub const TrustMode = trust.policy.Mode;
 pub const TrustDecision = trust.policy.Decision;
 pub const TrustStore = trust.store.Store;
+pub const LibfastTranscriptBinding = libfast.types.TranscriptBinding;
+pub const LibfastAuthContext = libfast.types.AuthContext;
+pub const LibfastPeerIdentity = libfast.types.PeerIdentity;
 
 pub fn hello() []const u8 {
     return "hello from libself";
