@@ -1,6 +1,7 @@
 pub const base58btc = @import("base58btc.zig");
 pub const identity = @import("identity.zig");
 pub const NodeId = @import("node_id.zig").NodeId;
+pub const Profile = @import("profile.zig").Profile;
 pub const did = struct {
     pub const document = @import("did/document.zig");
     pub const key = @import("did/key.zig");
