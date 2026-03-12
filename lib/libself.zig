@@ -47,6 +47,31 @@ pub fn hello() []const u8 {
 
 test {
     const std = @import("std");
+    const raw_libfast = @import("libfast");
+    const helper = struct {
+        fn initNegotiatedClient(alloc: std.mem.Allocator, seed: u8) !raw_libfast.QuicConnection {
+            var conn = try raw_libfast.QuicConnection.init(
+                alloc,
+                raw_libfast.QuicConfig.sshClient("example.com", ""),
+            );
+            errdefer conn.deinit();
+
+            const internal = try alloc.create(raw_libfast.connection.Connection);
+            errdefer alloc.destroy(internal);
+
+            const local_cid = try raw_libfast.ConnectionId.init(&([_]u8{seed} ** 8));
+            const remote_cid = try raw_libfast.ConnectionId.init(&([_]u8{seed +% 1} ** 8));
+            internal.* = try raw_libfast.connection.Connection.initClient(alloc, .ssh, local_cid, remote_cid);
+            conn.internal_conn = internal;
+
+            const encoded_params = try raw_libfast.transport_params.TransportParams.defaultServer().encode(alloc);
+            defer alloc.free(encoded_params);
+
+            try conn.applyPeerTransportParams(encoded_params);
+            conn.state = .established;
+            return conn;
+        }
+    };
     std.testing.refAllDecls(@This());
     std.testing.refAllDecls(base58btc);
     std.testing.refAllDecls(identity);
@@ -83,36 +108,40 @@ test {
     var store = TrustStore.init(allocator);
     defer store.deinit();
 
-    const libfast_context = LibfastAuthContext{
-        .subject = "peer-a",
-        .role = .server,
-        .binding = LibfastTranscriptBinding.fromTranscript("libself-smoke"),
-    };
-    const libfast_challenge = libfast.session.newChallengeMessage(libfast_context, [_]u8{0xbb} ** 32);
+    var connection = try helper.initNegotiatedClient(allocator, 0xbb);
+    defer connection.deinit();
+    var attached = try LibfastAuthenticatedConnection.init(allocator, &connection, "peer-a");
+    defer attached.deinit();
+
+    var peer_local = try LibfastLocalIdentity.fromSeed(allocator, [_]u8{0xbc} ** 32);
+    defer peer_local.deinit();
+
+    const libfast_challenge = try attached.newPeerChallenge([_]u8{0xbd} ** 32);
+    const libfast_context = try attached.peerContext();
     var libfast_proof = try libfast.session.signProofMessage(
         allocator,
-        key_pair,
-        did_uri,
+        peer_local.key_pair,
+        peer_local.did,
         libfast_context,
         libfast_challenge,
     );
     defer libfast_proof.deinit(allocator);
 
-    var libfast_peer = try libfast.session.verifyProofMessage(
-        allocator,
+    const libfast_decision = try attached.verifyPeerProof(
         .tofu,
         &store,
-        libfast_context,
         libfast_challenge,
         libfast_proof,
     );
-    defer libfast_peer.deinit();
 
     try std.testing.expectEqualStrings("hello from libself", hello());
     try std.testing.expectEqualStrings(did_uri, document.id);
-    try std.testing.expectEqual(
-        TrustDecision.accepted_and_pinned,
-        libfast_peer.trust,
-    );
-    try std.testing.expectEqualStrings(did_uri, libfast_peer.did);
+    try std.testing.expectEqual(TrustDecision.accepted_and_pinned, libfast_decision);
+    try std.testing.expect(attached.isAuthenticated());
+    try std.testing.expectEqualStrings(peer_local.did, attached.peerDid().?);
+    try std.testing.expectEqual(TrustDecision.accepted_and_pinned, attached.peerTrust().?);
+
+    const attached_node_id = attached.peerNodeId().?;
+    const expected_node_id = NodeId.fromPublicKey(peer_local.key_pair.public_key);
+    try std.testing.expectEqualSlices(u8, &expected_node_id.toBytes(), &attached_node_id.toBytes());
 }
