@@ -13,6 +13,8 @@ const JsonProfile = struct {
     metadata: ?[]JsonMetadata = null,
 };
 
+const max_profile_bytes = 1024 * 1024;
+
 pub const Profile = struct {
     allocator: std.mem.Allocator,
     did: []u8,
@@ -82,25 +84,25 @@ pub const Profile = struct {
     }
 
     pub fn toJsonAlloc(self: *const Profile, allocator: std.mem.Allocator) ![]u8 {
-        var out = std.ArrayList(u8).init(allocator);
-        defer out.deinit();
+        var out: std.ArrayList(u8) = .empty;
+        defer out.deinit(allocator);
 
-        var writer = out.writer();
+        var writer = out.writer(allocator);
         try writer.writeByte('{');
         try writer.writeAll("\"did\":");
-        try std.json.encodeJsonString(self.did, .{}, &writer);
+        try writer.print("{f}", .{std.json.fmt(self.did, .{})});
 
         if (self.display_name) |value| {
             try writer.writeAll(",\"display_name\":");
-            try std.json.encodeJsonString(value, .{}, &writer);
+            try writer.print("{f}", .{std.json.fmt(value, .{})});
         }
         if (self.transport_hint) |value| {
             try writer.writeAll(",\"transport_hint\":");
-            try std.json.encodeJsonString(value, .{}, &writer);
+            try writer.print("{f}", .{std.json.fmt(value, .{})});
         }
         if (self.local_label) |value| {
             try writer.writeAll(",\"local_label\":");
-            try std.json.encodeJsonString(value, .{}, &writer);
+            try writer.print("{f}", .{std.json.fmt(value, .{})});
         }
 
         try writer.writeAll(",\"metadata\":[");
@@ -111,14 +113,14 @@ pub const Profile = struct {
             first = false;
 
             try writer.writeAll("{\"key\":");
-            try std.json.encodeJsonString(entry.key_ptr.*, .{}, &writer);
+            try writer.print("{f}", .{std.json.fmt(entry.key_ptr.*, .{})});
             try writer.writeAll(",\"value\":");
-            try std.json.encodeJsonString(entry.value_ptr.*, .{}, &writer);
+            try writer.print("{f}", .{std.json.fmt(entry.value_ptr.*, .{})});
             try writer.writeByte('}');
         }
         try writer.writeAll("]}");
 
-        return out.toOwnedSlice();
+        return out.toOwnedSlice(allocator);
     }
 
     pub fn fromJson(allocator: std.mem.Allocator, bytes: []const u8) !Profile {
@@ -139,6 +141,26 @@ pub const Profile = struct {
         }
 
         return profile;
+    }
+
+    pub fn saveToDir(self: *const Profile, dir: std.fs.Dir, sub_path: []const u8) !void {
+        const encoded = try self.toJsonAlloc(self.allocator);
+        defer self.allocator.free(encoded);
+
+        try dir.writeFile(.{
+            .sub_path = sub_path,
+            .data = encoded,
+        });
+    }
+
+    pub fn loadFromDir(
+        allocator: std.mem.Allocator,
+        dir: std.fs.Dir,
+        sub_path: []const u8,
+    ) !Profile {
+        const encoded = try dir.readFileAlloc(allocator, sub_path, max_profile_bytes);
+        defer allocator.free(encoded);
+        return fromJson(allocator, encoded);
     }
 };
 
@@ -247,4 +269,34 @@ test "profile json escapes special characters" {
 
     try std.testing.expectEqualStrings("alice \"quoted\"", decoded.display_name.?);
     try std.testing.expectEqualStrings("line-1\nline-2", decoded.getMetadata("note").?);
+}
+
+test "profile save and load preserves content" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var profile = try Profile.init(allocator, "did:key:zprofile");
+    defer profile.deinit();
+    try profile.setDisplayName("alice");
+    try profile.setMetadata("region", "eu");
+
+    try profile.saveToDir(tmp.dir, "profile.json");
+
+    var loaded = try Profile.loadFromDir(allocator, tmp.dir, "profile.json");
+    defer loaded.deinit();
+
+    try std.testing.expectEqualStrings("did:key:zprofile", loaded.did);
+    try std.testing.expectEqualStrings("alice", loaded.display_name.?);
+    try std.testing.expectEqualStrings("eu", loaded.getMetadata("region").?);
+}
+
+test "profile load propagates missing file" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    try std.testing.expectError(
+        error.FileNotFound,
+        Profile.loadFromDir(std.testing.allocator, tmp.dir, "missing.json"),
+    );
 }

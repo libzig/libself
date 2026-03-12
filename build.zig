@@ -124,4 +124,21 @@ pub fn build(b: *std.Build) void {
     const run_trust_example = b.addRunArtifact(trust_example);
     const run_trust_example_step = b.step("run-trust-tofu", "Run the TOFU trust example");
     run_trust_example_step.dependOn(&run_trust_example.step);
+
+    const profile_example_module = b.createModule(.{
+        .root_source_file = b.path("examples/profile_roundtrip.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    profile_example_module.addImport("libself", libself_module);
+
+    const profile_example = b.addExecutable(.{
+        .name = "profile_roundtrip",
+        .root_module = profile_example_module,
+    });
+    b.installArtifact(profile_example);
+
+    const run_profile_example = b.addRunArtifact(profile_example);
+    const run_profile_example_step = b.step("run-profile-roundtrip", "Run the profile roundtrip example");
+    run_profile_example_step.dependOn(&run_profile_example.step);
 }
