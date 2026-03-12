@@ -317,3 +317,51 @@ test "authenticated connection verifies and attaches peer identity" {
     try std.testing.expectEqualStrings(peer_local.did, attached.peerDid().?);
     try std.testing.expectEqual(trust_policy.Decision.accepted_and_pinned, attached.peerTrust().?);
 }
+
+test "authenticated connection keeps pinned peer when tofu rejects replacement" {
+    const allocator = std.testing.allocator;
+    var connection = try initNegotiatedClient(allocator, 0x98);
+    defer connection.deinit();
+
+    var attached = try AuthenticatedConnection.init(allocator, &connection, "peer-e");
+    defer attached.deinit();
+
+    var first = try local_identity.LocalIdentity.fromSeed(allocator, [_]u8{0x91} ** 32);
+    defer first.deinit();
+    var second = try local_identity.LocalIdentity.fromSeed(allocator, [_]u8{0x92} ** 32);
+    defer second.deinit();
+
+    const challenge = try attached.newPeerChallenge([_]u8{0x93} ** 32);
+    const peer_context = try attached.peerContext();
+
+    var first_proof = try session.signProofMessage(
+        allocator,
+        first.key_pair,
+        first.did,
+        peer_context,
+        challenge,
+    );
+    defer first_proof.deinit(allocator);
+
+    var store = trust_store.Store.init(allocator);
+    defer store.deinit();
+
+    _ = try attached.verifyPeerProof(.tofu, &store, challenge, first_proof);
+
+    var replacement_proof = try session.signProofMessage(
+        allocator,
+        second.key_pair,
+        second.did,
+        peer_context,
+        challenge,
+    );
+    defer replacement_proof.deinit(allocator);
+
+    try std.testing.expectError(
+        error.TrustRejected,
+        attached.verifyPeerProof(.tofu, &store, challenge, replacement_proof),
+    );
+
+    try std.testing.expectEqualStrings(first.did, attached.peerDid().?);
+    try std.testing.expectEqual(trust_policy.Decision.accepted_and_pinned, attached.peerTrust().?);
+}
