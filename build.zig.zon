@@ -1,6 +1,6 @@
 .{
     .name = .libself,
-    .version = "0.0.1",
+    .version = "0.0.2",
     .dependencies = .{
         .libfast = .{
             .url = "git+https://github.com/libzig/libfast#0.0.16",
